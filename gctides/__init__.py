@@ -20,7 +20,8 @@ def gcmiles(what='all'):
     if type(what) is not list:
         what = [what]
 
-    if what not in ['all', 'camps', 'rapids', 'hikes', 'misc']:
+    if not all( w in ['all', 'camps', 'rapids', 'hikes',
+                      'water', 'access', 'misc'] for w in what):
         raise ValueError("Unexpected request type: " + what)
 
     # Construct feature dataframe(s). Each dataframe MUST contain the fields
@@ -29,7 +30,7 @@ def gcmiles(what='all'):
     #   Type    feature type (string)
     # Dataframe(s) describing on-shore features should include a "Side" column
     # indicating whether the feature is river right or left
-    if what in ["all", "camps"]:
+    if any(w in what for w in ['all', 'camps']):
         camps = [
             # RM    Name                    Type    Side        Size
             (0.0,   "Lee's Ferry",          "Camp", "Right",    "Large"),
@@ -289,10 +290,9 @@ def gcmiles(what='all'):
             (280.0, "280 Mile/Last Chance", "Camp", "Right",    "Medium")
         ]
         cdf = pd.DataFrame(camps, columns=['RM', 'Name', 'Type', 'Side', 'Size'])
-        #cdf.set_index(['RM','Type'], drop=False, inplace=True)
         frames.append(cdf)
 
-    if what in ['all','rapids']:
+    if any(w in what for w in ['all', 'rapids']):
         rapids = [
             #   RM      Name                Feature     Rating(s)
             (0.2,   "Paria Riffle",         "Rapid",    1,  1,  1,  1),
@@ -404,7 +404,7 @@ def gcmiles(what='all'):
         frames.append(rdf)
 
     # hikes
-    if what in ['all','hikes']:
+    if any( w in what for w in ['all', 'hikes']):
         hikes = [
             (0.0,   "Lee's Ferry",              "Hike", "Right"),
             (12.1,  "Browns Inscription",       "Hike", "Left"),
@@ -412,11 +412,10 @@ def gcmiles(what='all'):
             (61.9,  "Little Colorado",          "Hike", "Left"),
         ]
         hdf = pd.DataFrame(hikes, columns=['RM', 'Name', 'Type', 'Side'])
-        #hdf.set_index('RM', drop=True, inplace=True)
         frames.append(hdf)
 
     # everything else...
-    if what in ['all', 'misc']:
+    if any(w in what for w in ['all', 'misc', 'water', 'access']):
         misc = [
             (0.0,   "Lee's Ferry",          "Access",   "Right"),
             (31.9,  "Vaseys Paradise",      "Water",    "Right"),
@@ -447,7 +446,20 @@ def gcmiles(what='all'):
         else:
             miles = pd.concat([miles, df], axis=0)
 
-    return miles
+    # reorder the columns for consitency across different
+    # frame contents
+    cols = miles.columns
+    col_order = ['RM','Name','Type']
+    if 'Side' in cols:
+        col_order.append('Side')
+    if 'Size' in cols:
+        col_order.append('Size')
+    if 'VeryLow' in cols:
+        col_order.extend(['VeryLow','Low','Medium','High'])
+    miles = miles[col_order]
+
+    # return frame sorted by river mile
+    return miles.sort_values(by='RM',ascending=True)
 
 def get_flows(start_date=None):
     if start_date is None:
@@ -459,26 +471,36 @@ def get_flows(start_date=None):
     parameter = '00060'
     flows = None
     for s in stations['ID']:
-        d = nwis.get_site_data(s, service='iv', parameter_code=parameter, period=period)
-        fd = pd.DataFrame(d['00060:00011']['values'])
-        # fd[['value']] = fd[['value']].astype(int)
-        fd = fd.rename(columns={'value': s})
+        d = nwis.get_site_data(s, service='iv',
+                               parameter_code=parameter,
+                               period=period)
+
+        fd = pd.DataFrame(d['00060:00011']['values'], dtype=object)
+        # drop the qualifiers column
         fd.drop('qualifiers', axis=1, inplace=True)
-        fd.set_index('datetime', drop=True, inplace=True)
+
+        # strip the timezone info from the timestamp string and convert
+        # the result to a datetime
+        fd['datetime'] = fd['datetime'].str.replace('-0.:00','')
+        fd['datetime'] = pd.to_datetime(fd['datetime'])
+
+        # force the value to an int and rename the column
+        fd[['value']] = fd[['value']].astype(int)
+        fd = fd.rename(columns={'value': s})
+
+        # aggregate the gauge frame into the flows frame
         if flows is None:
-            # flows['datetime'] = pd.to_datetime(fd['datetime'])
             flows = fd
-            print(flows)
         else:
             flows = pd.concat([flows, fd], axis=1)
-            print(flows)
-    plt.figure()
-    flows.plot(x='index')
 
     return flows
 
 
 if __name__ == '__main__':
     print("in gctides")
-    # flows = get_flows("2016-06-01")
-    print(gcmiles(what=['camps','rapids']))
+    flows = get_flows("2016-06-01")
+    print(flows)
+    #print(gcmiles(what=['camps','rapids']))
+    # df = gcmiles()
+    # print(df.describe().to_string())
