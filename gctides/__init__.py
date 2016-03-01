@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 
 
 def gcgauges():
+    # gauge identifiers
     gauges = pd.DataFrame.from_records(
         [(0.0,      '09380000', 'Colorado River at Lees Ferry'),
          (87.4,     '09402500', 'Colorado River near Grand Canyon'),
@@ -435,7 +436,6 @@ def gcmiles(what='all'):
             (225.7, "Diamond Creek",        "Access",   "Left")
         ]
         mdf = pd.DataFrame(misc, columns=['RM', 'Name', 'Type', 'Side'])
-        #mdf.set_index('RM', drop=True, inplace=True)
         frames.append(mdf)
 
     for df in frames:
@@ -446,33 +446,78 @@ def gcmiles(what='all'):
         else:
             miles = pd.concat([miles, df], axis=0)
 
-    # reorder the columns for consitency across different
-    # frame contents
+    # Reorder the columns for consistency across different frame contents.
+    # 'RM', 'Name', 'Type'[, 'Side'] [, 'Size'] [, <rapid ratings>]
+    # Inapt columns, indicated by [, ...], are omitted based on frame contents.
     cols = miles.columns
-    col_order = ['RM','Name','Type']
+    col_order = ['RM', 'Name', 'Type']
     if 'Side' in cols:
         col_order.append('Side')
     if 'Size' in cols:
         col_order.append('Size')
     if 'VeryLow' in cols:
-        col_order.extend(['VeryLow','Low','Medium','High'])
+        col_order.extend(['VeryLow', 'Low', 'Medium', 'High'])
     miles = miles[col_order]
 
     # return frame sorted by river mile
     return miles.sort_values(by='RM',ascending=True)
 
-def get_flows(start_date=None):
-    if start_date is None:
-        period = 'P1D'
+def get_flows(start_date=None, end_date=None, gauge=None):
+    today = pd.to_datetime('now')
+    print(today)
+    if all(a is None for a in [start_date,end_date]):
+        # if no date/range was specified get the previous 10 days
+        end_date = today
+        start_date = today - pd.Timedelta(days = -10)
     else:
-        period = 'P1D'
+            if start_date is not None:
+                start_date = pd.to_datetime(start_date)
+                if start_date > today:
+                    # oops!
+                    raise ValueError("Invalid start_date in the future!")
+
+                if end_date is None:
+                    offset = 10
+                else:
+                    # two cases for end_date here, it is either:
+                    #  offset (int) - a number of days to add to start_date
+                    #  date string  - the actual date to stop
+                    if type(end_date) is int:
+                        if end_date < 0:
+                            # if end_date is negative flip the start and end dates
+                            start_date = start_date - pd.Timedelta(days = end_date)
+                        end_date = start_date + pd.Timedelta(days = end_date)
+            else:
+                    end_date = pd.to_datetime(end_date)
+                    print(min(end_date,today))
+
+                if end_date > today:
+                    end_date = today
+
+
+    print("start_date:")
+    print(type(start_date))
+    print(start_date)
+    print("end_date:")
+    print(type(end_date))
+    print(end_date)
+        #except
+
+    return None
 
     stations = gcgauges()
     parameter = '00060'
     flows = None
     for s in stations['ID']:
+        # if a gauge was specified and this isn't it, skip it
+        if gauge is not None and s != gauge:
+            continue
+
+        # get the streamflow for the gauge
         d = nwis.get_site_data(s, service='iv',
                                parameter_code=parameter,
+                               start_date=start_date,
+                               end_date=end_date,
                                period=period)
 
         fd = pd.DataFrame(d['00060:00011']['values'], dtype=object)
@@ -499,7 +544,7 @@ def get_flows(start_date=None):
 
 if __name__ == '__main__':
     print("in gctides")
-    flows = get_flows("2016-06-01")
+    flows = get_flows("2012-06-11 12:00:00","6/1/2012 12:00")
     print(flows)
     #print(gcmiles(what=['camps','rapids']))
     # df = gcmiles()
